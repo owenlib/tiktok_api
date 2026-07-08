@@ -40,9 +40,12 @@ VIDEO_LIST_URL = "https://open.tiktokapis.com/v2/video/list/"
 SCOPES = "user.info.basic,user.info.stats,video.list"
 
 # Fields to request from each endpoint (comma-separated per the API contract).
+# NOTE: only fields covered by our granted scopes. display_name/open_id/union_id
+# come from user.info.basic; the counts come from user.info.stats. Fields like
+# is_verified/bio_description/profile_deep_link would need user.info.profile.
 USER_FIELDS = (
-    "open_id,union_id,display_name,is_verified,bio_description,"
-    "profile_deep_link,follower_count,following_count,likes_count,video_count"
+    "open_id,union_id,display_name,"
+    "follower_count,following_count,likes_count,video_count"
 )
 VIDEO_FIELDS = (
     "id,create_time,title,video_description,duration,share_url,"
@@ -217,7 +220,9 @@ def fetch_user_info(token: str) -> dict:
     return body["data"]["user"]
 
 
-def fetch_all_videos(token: str) -> list[dict]:
+def fetch_all_videos(token: str, since_ts: int | None = None) -> list[dict]:
+    """Fetch videos newest-first. If since_ts is set (epoch seconds), keep only
+    videos created at/after it and stop paging once we pass the cutoff."""
     videos: list[dict] = []
     cursor = 0
     while True:
@@ -234,7 +239,17 @@ def fetch_all_videos(token: str) -> list[dict]:
         body = resp.json()
         _check_api_error(body, "video/list")
         data = body["data"]
-        videos.extend(data.get("videos", []))
+        page = data.get("videos", [])
+
+        if since_ts is not None:
+            in_window = [v for v in page if (v.get("create_time") or 0) >= since_ts]
+            videos.extend(in_window)
+            # Newest-first: if this page ran past the cutoff, later pages are older.
+            if len(in_window) < len(page):
+                break
+        else:
+            videos.extend(page)
+
         if not data.get("has_more"):
             break
         cursor = data["cursor"]
@@ -294,22 +309,46 @@ def write_csv(user: dict, videos: list[dict], out_path: Path) -> None:
             })
 
 
+DEFAULT_OUT_DIR = Path("/Users/owenlib/Developer/analytics")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out", default="tiktok_analytics.csv", help="output CSV path"
+        "--out",
+        default=None,
+        help="output CSV path (default: "
+        f"{DEFAULT_OUT_DIR}/tiktok_analytics_<date>.csv)",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="only include videos from the last N days (default: 30; "
+        "use 0 for all videos)",
     )
     args = parser.parse_args()
+
+    since_ts = None
+    if args.days > 0:
+        since_ts = int(time.time()) - args.days * 86400
+
+    if args.out:
+        out_path = Path(args.out)
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        out_path = DEFAULT_OUT_DIR / f"tiktok_analytics_{stamp}.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = load_config()
     token = get_access_token(cfg)
 
     print("Fetching account stats...")
     user = fetch_user_info(token)
-    print("Fetching videos...")
-    videos = fetch_all_videos(token)
+    window = f"last {args.days} days" if since_ts else "all time"
+    print(f"Fetching videos ({window})...")
+    videos = fetch_all_videos(token, since_ts=since_ts)
 
-    out_path = Path(args.out)
     write_csv(user, videos, out_path)
     print(
         f"\nDone: {len(videos)} videos + 1 account row -> {out_path}"
