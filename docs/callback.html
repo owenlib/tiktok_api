@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TikTok OAuth callback</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 620px;
+           margin: 60px auto; padding: 0 20px; line-height: 1.5; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+    #code { display: block; word-break: break-all; background: #f2f2f2;
+            padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 15px; }
+    button { font-size: 15px; padding: 8px 16px; border-radius: 8px;
+             border: 1px solid #ccc; cursor: pointer; }
+    .ok { color: #1a7f37; }
+    .err { color: #cf222e; }
+  </style>
+</head>
+<body>
+  <h2>TikTok authorization callback</h2>
+  <p id="status">Reading authorization code…</p>
+  <code id="code"></code>
+  <button id="copy" style="display:none">Copy code</button>
+  <p style="color:#666;font-size:14px;margin-top:24px">
+    Copy this code and paste it into your terminal running
+    <code>tiktok_analytics.py</code>. You can also just copy the full URL from the
+    address bar — the script accepts either.
+  </p>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const error = params.get("error");
+    const status = document.getElementById("status");
+    const codeEl = document.getElementById("code");
+    const copyBtn = document.getElementById("copy");
+
+    if (error) {
+      status.innerHTML = '<span class="err">Authorization failed: ' +
+        (params.get("error_description") || error) + "</span>";
+      codeEl.style.display = "none";
+    } else if (code) {
+      status.innerHTML = '<span class="ok">Success — here is your code:</span>';
+      codeEl.textContent = code;
+      copyBtn.style.display = "inline-block";
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(code);
+        copyBtn.textContent = "Copied!";
+      };
+    } else {
+      status.textContent = "No authorization code found in the URL.";
+      codeEl.style.display = "none";
+    }
+  </script>
+</body>
+</html>
